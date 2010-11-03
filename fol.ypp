@@ -1,0 +1,160 @@
+/* Grammar rules and stuff for parsing some FOL style formulas.  */
+
+%{
+
+#include <ctype.h>
+#include <stdio.h>
+#include <vector>
+#include "fol_parser.hpp"
+#include "logic.hpp"
+#include "utils.hpp"
+//#define YYSTYPE char
+int yylex (void);
+void yyerror (char const *);
+%}
+
+
+%union {
+    Quantifier* quant;
+    std::vector<Quantifier>* qlist;
+    Literal* lit;
+    Conjunction* conj;
+    std::vector<Conjunction*>* form;            /* For returning formulae.  */
+    char var;   /* For returning variable names.  */
+}
+
+
+%token <var> VARIABLE /* seriously just a variable */
+
+%type <quant> quantifier
+%type <qlist> quantifier_list
+%type <lit> literal
+%type <conj> conjunction
+%type <form> disjunct //not a full powered formula, but a list of conjunctions
+%type <form> formula
+%type <form> line
+%type <form> input
+
+%destructor { delete $$; } quantifier
+
+// When a rule has no action, Bison by default copies the value of $1 into $$. This is what happens in the first rule (the one that uses NUM). 
+
+%% /* Grammar rules and actions follow.  */   
+     input:  /* empty */ { exit(0); } //quit on no input
+             | line { $$=$1; Conjunction::last_formula_parsed = $$; YYACCEPT;}
+     ;
+
+     line:    '\n' { exit(0); } //quit on blank line
+             | formula '\n'      { $$=$1; }
+     ;
+     
+     literal: VARIABLE '-' '>' VARIABLE { $$ = new Literal($1, $4); }
+             | VARIABLE '=' '=' VARIABLE { $$ = new Literal($1, $4, IDENTITY_ECA_NUM, false); }
+             | VARIABLE '!' '=' VARIABLE { $$ = new Literal($1, $4, IDENTITY_ECA_NUM, true); }
+             | '~' literal { $2->negated = !($2->negated); $$ = $2; }
+             | '(' literal ')' {$$ = $2;}
+     ;
+     
+     quantifier: 'A' VARIABLE { $$ = new Quantifier(false, true, $2); }
+             |    'E' VARIABLE { $$ = new Quantifier(false, false, $2); }
+             |    '~' quantifier { $2->negated = !($2->negated); $$ = $2; }
+     ;
+     
+     quantifier_list: quantifier    { $$ = new std::vector<Quantifier>(); $$->push_back(*($1)); }
+             | quantifier quantifier_list {$2->insert($2->begin(), *($1)); $$ = $2;}
+     
+     conjunction:   literal { $$ = new Conjunction(); $$->add_literal($1)}
+             | literal '&' conjunction { $3->add_literal($1); $$ = $3; }
+             | '(' conjunction ')' { $$ = $2; }
+             | quantifier_list '(' conjunction ')' { 
+                                                     for(int j = $1->size() - 1; j >= 0; j--){ 
+                                                       $3->add_outer_quantifier(($1->at(j))); 
+                                                     } 
+                                                     $$ = $3; 
+                                                   }
+     ;
+     
+     disjunct: conjunction { $$ = new std::vector<Conjunction*>(); $$->push_back($1); }    
+             | conjunction '|' disjunct          { $3->push_back($1); $$ = $3; }
+     ;
+     
+     formula: disjunct { $$ = $1 }    
+//             | '(' formula ')' {$$ = $2;}
+             | quantifier_list '(' formula ')'   { 
+                                                   for(int j = $1->size() - 1; j >= 0; j--){ 
+                                                     for(int i = 0; i < $3->size(); i++){ 
+                                                       $3->at(i)->add_outer_quantifier($1->at(j));
+                                                     } 
+                                                    } 
+                                                   $$ = $3;
+                                                 }
+     ;
+     
+    
+
+%% 
+// Epilogue
+
+/* The lexical analyzer  */
+
+int yylex (void)
+{
+    char c;
+    
+    /* Skip white space.  */
+    while ((c = InputWrapper::get_char()) == ' ' || c == '\t');
+    
+    /* Process variables.  */
+    if (isalpha (c) && c != 'A' && c != 'E')
+    {
+        //yylval.var = c;        
+        yylval.var = c;
+        return VARIABLE;
+    }
+   
+    
+    /* Return end-of-input.  */
+    if (c == EOF)
+        return 0;
+        
+    /* Return a single character.  */
+    yylval.var = c;
+    return c;
+}
+
+void yyerror (char const *err){
+    fprintf(stderr, "%s\n", err);
+}
+
+
+int InputWrapper::run_parser(){
+    return yyparse();
+}
+
+#include <iostream>
+#include <sstream>
+
+/* Code for managing input from command line */
+std::stringstream* InputWrapper::content_stream;
+bool InputWrapper::has_content = false;
+
+void InputWrapper::set_input(const std::string& input){
+    using namespace std;
+    content_stream = new stringstream(input, stringstream::in);
+    has_content = true;
+}
+
+char InputWrapper::get_char(){
+    if(has_content){
+        char ch;
+        content_stream->get(ch);
+        return ch;
+    }else{
+        return getchar();
+    }
+}
+
+void InputWrapper::close(){
+    has_content = false;
+    delete content_stream;
+}

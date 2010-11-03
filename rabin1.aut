@@ -1,0 +1,16 @@
+#----- omega-automaton (DRW) ----- 
+RABIN
+# Number of states: 
+2
+# Size of alphabet: 
+2
+# List of transitions: 
+1 > 1 > 2
+1 > 2 > 1
+2 > 1 > 2
+2 > 2 > 1
+# Initial state
+1
+# Rabin pairs: 
+1 | 2 
+# EOF
